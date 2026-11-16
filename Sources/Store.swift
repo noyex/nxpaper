@@ -20,11 +20,16 @@ final class Store: ObservableObject {
     @Published var paused: Bool {
         didSet { UserDefaults.standard.set(paused, forKey: "paused") }
     }
+    /// Off hands the desktop back to the system wallpaper.
+    @Published var enabled: Bool {
+        didSet { UserDefaults.standard.set(!enabled, forKey: "disabled") }
+    }
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     init() {
         current = UserDefaults.standard.string(forKey: "wallpaper") ?? Store.featured
         paused = UserDefaults.standard.bool(forKey: "paused")
+        enabled = !UserDefaults.standard.bool(forKey: "disabled")
         reload()
     }
 
