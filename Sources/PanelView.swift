@@ -96,11 +96,14 @@ struct WallpaperTile: View {
     @ObservedObject var state: PanelState
     @State private var hovering = false
 
-    private var selected: Bool { store.current == wallpaper.id }
+    private var selected: Bool { store.enabled && store.current == wallpaper.id }
 
     var body: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.2)) { store.current = wallpaper.id }
+            withAnimation(.easeOut(duration: 0.2)) {
+                store.current = wallpaper.id
+                store.enabled = true
+            }
         } label: {
             ZStack(alignment: .bottomLeading) {
                 Color.black
@@ -142,13 +145,17 @@ struct WallpaperTile: View {
     }
 }
 
-/// Status, pause and the app menu, on one floating pill like Burn's footer.
+/// Status, pause, on/off and the app menu, on one floating pill like Burn's footer.
 struct Footer: View {
     @ObservedObject var store: Store
 
+    private var status: String {
+        !store.enabled ? "Tapety wyłączone" : store.paused ? "Animacja wstrzymana" : "Animacja włączona"
+    }
+
     var body: some View {
         HStack(spacing: 6) {
-            Text(store.paused ? "Animacja wstrzymana" : "Animacja włączona")
+            Text(status)
                 .font(BrandFont.medium.font(13))
                 .foregroundStyle(Look.secondary)
                 .contentTransition(.opacity)
@@ -157,6 +164,13 @@ struct Footer: View {
             RoundButton(systemName: store.paused ? "play.fill" : "pause.fill",
                         label: store.paused ? "Wznów animację" : "Wstrzymaj animację") {
                 withAnimation(.easeOut(duration: 0.15)) { store.paused.toggle() }
+            }
+            .disabled(!store.enabled)
+            .opacity(store.enabled ? 1 : 0.35)
+            RoundButton(systemName: "power",
+                        label: store.enabled ? "Wyłącz tapety" : "Włącz tapety",
+                        active: store.enabled) {
+                withAnimation(.easeOut(duration: 0.15)) { store.enabled.toggle() }
             }
             Menu {
                 Toggle("Uruchamiaj przy logowaniu", isOn: Binding(
@@ -190,6 +204,7 @@ struct Footer: View {
 struct RoundButton: View {
     let systemName: String
     let label: String
+    var active = false
     let action: () -> Void
     @State private var hovering = false
 
@@ -197,7 +212,7 @@ struct RoundButton: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(hovering ? Look.text : Look.secondary)
+                .foregroundStyle(active ? Look.accent : hovering ? Look.text : Look.secondary)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 32, height: 32)
                 .background(hovering ? Look.neutralHover : Look.neutral, in: Circle())

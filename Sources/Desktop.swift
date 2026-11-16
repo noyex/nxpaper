@@ -59,6 +59,8 @@ final class DesktopController: NSObject {
 
         store.$current.dropFirst().removeDuplicates().receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.rebuild() }.store(in: &subscriptions)
+        store.$enabled.dropFirst().removeDuplicates().receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.rebuild() }.store(in: &subscriptions)
         store.$paused.dropFirst().receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updatePause() }.store(in: &subscriptions)
 
@@ -74,8 +76,18 @@ final class DesktopController: NSObject {
     }
 
     private func rebuild() {
-        guard let wallpaper = store.currentWallpaper else { return }
         let old = windows
+        guard store.enabled, let wallpaper = store.currentWallpaper else {
+            windows = []
+            shown = nil
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.3
+                for w in old { w.animator().alphaValue = 0 }
+            } completionHandler: {
+                old.forEach { $0.close() }
+            }
+            return
+        }
         windows = NSScreen.screens.map { WallpaperWindow(screen: $0, url: wallpaper.url) }
         // New windows come in above the old ones, so the switch never flashes the system wallpaper.
         for w in windows { w.alphaValue = 0; w.orderFront(nil) }
