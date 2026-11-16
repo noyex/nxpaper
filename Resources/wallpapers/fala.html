@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fala</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Dot field flying over a slow wave. Pure black background (OLED friendly):
+// every lit pixel keeps moving, nothing static is drawn.
+const cv = document.getElementById('c');
+const gl = cv.getContext('webgl', {antialias: false, alpha: false, premultipliedAlpha: false, powerPreference: 'low-power'});
+
+const COLS = 110, ROWS = 46;   // columns each side, rows from horizon to bottom
+const vs = `
+attribute vec2 a;               // x: column (-COLS..COLS), y: row (0 = horizon)
+uniform float t;
+uniform vec2 res;
+uniform float dpr;
+varying vec3 vCol;
+varying float vA;
+const float R = float(${ROWS});
+const float SCROLL = 0.22;      // rows per second, the field drifts toward you
+void main(){
+  float travel = t * SCROLL;
+  float k = floor(travel);
+  float rp = a.y + fract(travel);           // continuous row position
+  float rw = a.y - k;                       // world row id, keeps the wave pattern attached to the dots
+  float p = rp / (R - 1.0);
+  float u = res.y / 1000.0;
+
+  float y0 = res.y * 0.30 + p * p * res.y * 0.86;
+  float sp = (11.0 + p * 34.0) * u;
+  float rad = (0.75 + p * 2.7) * u;
+  float amp = (6.0 + p * 46.0) * u;
+
+  float c = a.x;
+  float h = sin(c * 0.33 + t * 0.62 + rw * 0.42) * cos(rw * 0.28 - t * 0.33 + c * 0.05);
+  float px = res.x * 0.5 + c * sp;
+  float py = y0 - h * amp;
+  gl_Position = vec4(px / res.x * 2.0 - 1.0, 1.0 - py / res.y * 2.0, 0.0, 1.0);
+
+  float horizonFade = smoothstep(0.0, 0.08, p);
+  float bottomFade = clamp((res.y + 4.0 * u - y0) / (res.y * 0.25), 0.0, 1.0);
+  float fade = horizonFade * bottomFade;
+
+  float n = res.x * 0.5 / sp;
+  float band = smoothstep(0.26, 0.34, p) * (1.0 - smoothstep(0.58, 0.66, p));
+  float g = smoothstep(0.86, 0.97, h) * band * (1.0 - smoothstep(0.45, 0.6, abs(c) / n));
+
+  vCol = mix(vec3(0.85), vec3(0.118, 0.988, 0.118), g);
+  vA = mix((0.10 + p * 0.8) * fade, fade, g);
+  gl_PointSize = max(1.0, 2.0 * (rad + 0.9 * u * g) + 1.0);
+}`;
+const fs = `
+precision mediump float;
+varying vec3 vCol;
+varying float vA;
+void main(){
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  float edge = 1.0 - smoothstep(0.55, 1.0, d);
+  gl_FragColor = vec4(vCol * vA * edge, 1.0);
+}`;
+
+function sh(type, src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const pts = new Float32Array((COLS * 2 + 1) * ROWS * 2);
+let i = 0;
+for (let r = ROWS - 1; r >= 0; r--) for (let c = -COLS; c <= COLS; c++) { pts[i++] = c; pts[i++] = r; }
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STATIC_DRAW);
+const aLoc = gl.getAttribLocation(prog, 'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+const uT = gl.getUniformLocation(prog, 't'), uRes = gl.getUniformLocation(prog, 'res'), uDpr = gl.getUniformLocation(prog, 'dpr');
+
+// additive blending: overlapping dots brighten instead of hiding each other
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.ONE, gl.ONE);
+gl.clearColor(0, 0, 0, 1);
+
+function resize(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.uniform2f(uRes, w, h);
+  gl.uniform1f(uDpr, dpr);
+}
+
+const params = new URLSearchParams(location.search);
+const FPS = Number(params.get('fps')) || 30;
+// optional fixed time for stills: ?t=12
+const fixedT = params.has('t') ? Number(params.get('t')) : null;
+// each screen starts at a different moment so the two monitors don't mirror each other
+let t = fixedT ?? (10 + Math.random() * 600), last = performance.now(), acc = 0, running = true;
+
+function frame(now){
+  if (!running) return;
+  const dt = Math.min(now - last, 100) / 1000; last = now; acc += dt;
+  if (acc >= 1 / FPS - 0.002) {
+    if (fixedT === null) t += acc;
+    acc = 0;
+    resize();
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1f(uT, t);
+    gl.drawArrays(gl.POINTS, 0, pts.length / 2);
+  }
+  requestAnimationFrame(frame);
+}
+
+// called by the macOS host app
+window.setPaused = p => {
+  if (p === !running) return;
+  running = !p;
+  if (running) { last = performance.now(); requestAnimationFrame(frame); }
+};
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
