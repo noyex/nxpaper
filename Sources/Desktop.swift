@@ -57,9 +57,10 @@ final class DesktopController: NSObject {
         super.init()
         rebuild()
 
-        store.$current.dropFirst().removeDuplicates().receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.rebuild() }.store(in: &subscriptions)
-        store.$enabled.dropFirst().removeDuplicates().receive(on: RunLoop.main)
+        // Picking a tile while off changes both at once; rebuild once for the pair.
+        Publishers.CombineLatest(store.$current.removeDuplicates(), store.$enabled.removeDuplicates())
+            .dropFirst()
+            .debounce(for: .zero, scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.rebuild() }.store(in: &subscriptions)
         store.$paused.dropFirst().receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updatePause() }.store(in: &subscriptions)
