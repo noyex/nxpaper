@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Kontury</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Topographic contour lines of a slowly morphing height field. Hairlines on pure black, nothing static is lit.
+const cv = document.getElementById('c');
+const gl = cv.getContext('webgl', {antialias: false, alpha: false, premultipliedAlpha: false, powerPreference: 'low-power'});
+gl.getExtension('OES_standard_derivatives');
+
+const vs = `
+attribute vec2 a;
+void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
+
+const fs = `
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform float t;
+uniform vec2 res;
+uniform float dpr;
+
+float hash(vec2 p){ p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  return mix(mix(hash(i), hash(i + vec2(1,0)), u.x), mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), u.x), u.y);
+}
+// 3 octaves, each drifting in its own direction so the contours morph instead of just sliding
+float field(vec2 p){
+  float h = 0.55 * vnoise(p * 0.9 + vec2(t * 0.012, -t * 0.008) + 7.0);
+  h += 0.30 * vnoise(p * 1.9 + vec2(-t * 0.018, t * 0.014) + 19.0);
+  h += 0.15 * vnoise(p * 3.7 + vec2(t * 0.025, t * 0.02) + 41.0);
+  return h;
+}
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5 * res) / res.y;
+  float h = field(uv * 2.6);
+  float v = h * 26.0;
+  float px = max(fwidth(v), 1e-4);
+  float f = fract(v);
+  float dist = min(f, 1.0 - f) / px;                 // distance to the nearest line in pixels
+  float w = max(1.0, res.y / 1440.0);                // ~1px at 1440p, never thinner than 1px
+  float a = clamp(0.5 * w + 0.5 - dist, 0.0, 1.0);
+  a *= min(1.0, 0.9 / px);                           // very steep spots would turn into grey mush, fade them
+  float lvl = floor(v + 0.5);
+  float major = step(mod(lvl, 5.0), 0.5);
+  vec3 col = vec3(0.26) + major * vec3(0.22);
+  float acc = step(abs(lvl - 13.0), 0.5);            // one accented level
+  col = mix(col, vec3(0.78, 0.40, 0.14) * 0.85, acc);
+  // soft vignette, edges stay darker
+  float vg = 1.0 - smoothstep(0.55, 1.15, length(uv * vec2(0.8, 1.0)) * 1.25);
+  gl_FragColor = vec4(col * a * (0.35 + 0.65 * vg), 1.0);
+}`;
+
+function sh(type, src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const aLoc = gl.getAttribLocation(prog, 'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+
+const uT = gl.getUniformLocation(prog, 't'), uRes = gl.getUniformLocation(prog, 'res'), uDpr = gl.getUniformLocation(prog, 'dpr');
+gl.clearColor(0, 0, 0, 1);
+
+function resize(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.uniform2f(uRes, w, h);
+  gl.uniform1f(uDpr, dpr);
+}
+
+const params = new URLSearchParams(location.search);
+const FPS = Number(params.get('fps')) || 30;
+// optional fixed time for stills: ?t=12
+const fixedT = params.has('t') ? Number(params.get('t')) : null;
+// each screen starts at a different moment so the two monitors don't mirror each other
+let t = fixedT ?? (10 + Math.random() * 600), last = performance.now(), acc = 0, running = true;
+
+function frame(now){
+  if (!running) return;
+  const dt = Math.min(now - last, 100) / 1000; last = now; acc += dt;
+  if (acc >= 1 / FPS - 0.002) {
+    if (fixedT === null) t += acc;
+    acc = 0;
+    resize();
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1f(uT, t);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  requestAnimationFrame(frame);
+}
+
+// called by the macOS host app
+window.setPaused = p => {
+  if (p === !running) return;
+  running = !p;
+  if (running) { last = performance.now(); requestAnimationFrame(frame); }
+};
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Gwiazdy</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const gl = cv.getContext('webgl', {antialias: false, alpha: false, premultipliedAlpha: false, powerPreference: 'low-power'});
+// Slow starfield drifting toward the viewer, plus a rare shooting star.
+// Pure black background (OLED friendly): every star keeps moving, grows and twinkles.
+const NS = 4200, NT = 70;           // stars, points in the shooting star trail
+const STRIDE = 4;
+const vs = `
+attribute vec4 a;               // star: x,y in disc, z: depth phase, w: 1. trail: x: 0..1 along tail, w: 2
+uniform float t;
+uniform vec2 res;
+varying vec3 vCol;
+varying float vA;
+float h1(float n){ return fract(sin(n * 127.1) * 43758.5453); }
+void main(){
+  float u = res.y / 1000.0;
+  if (a.w > 1.5) {
+    // shooting star: one every ~50 s on average, 2 s long, random place and angle
+    const float P = 36.0;
+    float n = floor(t / P);
+    float on = step(0.45, h1(n + 3.0));
+    float lt = t - n * P - h1(n + 11.0) * (P - 6.0);
+    float s = lt / 2.2;
+    float live = on * step(0.0, s) * step(s, 1.0);
+    vec2 start = vec2(0.15 + 0.7 * h1(n + 5.0), 0.1 + 0.35 * h1(n + 7.0)) * res;
+    float ang = 0.35 + 0.35 * h1(n + 9.0);
+    vec2 dir = vec2(h1(n + 13.0) < 0.5 ? 1.0 : -1.0, 0.0) * cos(ang) + vec2(0.0, sin(ang));
+    vec2 head = start + dir * s * res.y * 0.5;
+    vec2 p = head - dir * a.x * res.y * 0.12;
+    gl_Position = live > 0.5 ? vec4(p.x / res.x * 2.0 - 1.0, 1.0 - p.y / res.y * 2.0, 0.0, 1.0) : vec4(2.0, 2.0, 0.0, 1.0);
+    vCol = vec3(0.85, 0.92, 1.0);
+    vA = pow(1.0 - a.x, 2.0) * sin(3.14159 * s) * 0.9;
+    gl_PointSize = max(1.0, 2.0 * (1.5 - 0.9 * a.x) * u);
+    return;
+  }
+  float hs = h1(a.z * 91.0 + a.x * 13.0);
+  float d = fract(a.z - t * 0.011);            // 1 = far, 0 = at the viewer
+  // vanishing point wanders slowly so nothing converges on a fixed pixel
+  vec2 vp = vec2(0.5 + 0.06 * sin(t * 0.021), 0.5 + 0.05 * sin(t * 0.017 + 1.0));
+  float dd = d * 0.92 + 0.08;
+  vec2 p = vp * res + a.xy / dd * res.y * 0.16;
+  gl_Position = vec4(p.x / res.x * 2.0 - 1.0, 1.0 - p.y / res.y * 2.0, 0.0, 1.0);
+
+  float near = 1.0 - d;
+  float tw = 0.65 + 0.35 * sin(t * (0.6 + hs * 1.4) + hs * 60.0);
+  float fade = smoothstep(1.0, 0.8, d) * smoothstep(0.0, 0.06, d);
+  float bright = 0.35 + 1.1 * pow(near, 1.4);
+  vA = bright * fade * tw * (0.5 + 0.5 * hs);
+  vec3 tint = hs > 0.85 ? vec3(0.75, 0.85, 1.0) : (hs < 0.12 ? vec3(1.0, 0.82, 0.62) : vec3(0.95, 0.96, 1.0));
+  vCol = tint;
+  gl_PointSize = max(1.0, 2.0 * (0.8 + 2.4 * pow(near, 1.6) + 0.7 * hs) * u);
+}`;
+const fs = `
+precision mediump float;
+varying vec3 vCol;
+varying float vA;
+void main(){
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  float edge = 1.0 - smoothstep(0.35, 1.0, d);
+  gl_FragColor = vec4(vCol * vA * edge, 1.0);
+}`;
+
+const pts = new Float32Array((NS + NT) * 4);
+for (let i = 0; i < NS; i++) {
+  // uniform over a disc, depth phase spread evenly
+  const r = Math.sqrt(Math.random()) * 5.2, th = Math.random() * 6.2832;
+  pts[i * 4] = Math.cos(th) * r; pts[i * 4 + 1] = Math.sin(th) * r;
+  pts[i * 4 + 2] = Math.random(); pts[i * 4 + 3] = 1;
+}
+for (let j = 0; j < NT; j++) { const o = (NS + j) * 4; pts[o] = j / (NT - 1); pts[o + 3] = 2; }
+
+function sh(type, src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STATIC_DRAW);
+const aLoc = gl.getAttribLocation(prog, 'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc, STRIDE, gl.FLOAT, false, 0, 0);
+const uT = gl.getUniformLocation(prog, 't'), uRes = gl.getUniformLocation(prog, 'res');
+
+// additive blending: overlapping dots brighten instead of hiding each other
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.ONE, gl.ONE);
+gl.clearColor(0, 0, 0, 1);
+
+function resize(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.uniform2f(uRes, w, h);
+}
+
+const params = new URLSearchParams(location.search);
+const FPS = Number(params.get('fps')) || 30;
+// optional fixed time for stills: ?t=12
+const fixedT = params.has('t') ? Number(params.get('t')) : null;
+// each screen starts at a different moment so the two monitors don't mirror each other
+let t = fixedT ?? (10 + Math.random() * 600), last = performance.now(), acc = 0, running = true;
+
+function frame(now){
+  if (!running) return;
+  const dt = Math.min(now - last, 100) / 1000; last = now; acc += dt;
+  if (acc >= 1 / FPS - 0.002) {
+    if (fixedT === null) t += acc;
+    acc = 0;
+    resize();
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1f(uT, t);
+    gl.drawArrays(gl.POINTS, 0, pts.length / STRIDE);
+  }
+  requestAnimationFrame(frame);
+}
+
+// called by the macOS host app
+window.setPaused = p => {
+  if (p === !running) return;
+  running = !p;
+  if (running) { last = performance.now(); requestAnimationFrame(frame); }
+};
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

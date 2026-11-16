@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Zorza</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const gl = cv.getContext('webgl', {antialias: false, alpha: false, premultipliedAlpha: false, powerPreference: 'low-power'});
+// Aurora borealis: soft curtains made of fine dots, all positions computed in the vertex shader.
+// Pure black background (OLED friendly): every lit dot sways and fades, nothing static is drawn.
+const NC = 380, NV = 44, CURT = 3;   // columns per curtain, dots per column, curtains
+const STRIDE = 3;
+const vs = `
+attribute vec3 a;               // x: column, y: dot along the ray (0 = lower edge), z: curtain id
+uniform float t;
+uniform vec2 res;
+varying vec3 vCol;
+varying float vA;
+float h1(float n){ return fract(sin(n * 127.1) * 43758.5453); }
+void main(){
+  float u = res.y / 1000.0;
+  float c = a.z;
+  float x01 = a.x / ${(NC - 1).toFixed(1)};
+  float v = (a.y + h1(a.x * 3.3 + a.y * 9.1 + c) - 0.5) / ${(NV - 1).toFixed(1)};
+  v = clamp(v, 0.0, 1.0);
+  float hc = h1(a.x * 1.31 + c * 17.0);
+  float hv = h1(a.x * 7.7 + a.y * 3.1 + c * 5.0);
+
+  // slow travelling waves shape the lower edge of each curtain
+  float ph = c * 2.1;
+  float x = x01 * 1.3 - 0.15;
+  float edge = 0.25 + c * 0.06
+             + 0.060 * sin(x * 3.4 + t * 0.045 + ph)
+             + 0.028 * sin(x * 8.1 - t * 0.075 + ph * 2.0)
+             + 0.010 * sin(x * 17.0 + t * 0.11 + ph);
+  // patches: curtains brighten and clear over minutes
+  float patch = 0.5 + 0.5 * sin(x * 4.2 - t * 0.032 + ph * 3.0);
+  patch = patch * patch * (0.45 + 0.55 * (0.5 + 0.5 * sin(x * 1.7 + t * 0.021 + ph)));
+  // ray structure: columns glow unevenly and the pattern drifts sideways
+  float ray = 0.5 + 0.5 * sin(a.x * 0.37 + sin(t * 0.05 + x * 6.0 + ph) * 2.5 + t * 0.09 + ph);
+  ray = mix(ray, hc, 0.35);
+  float H = (0.16 + 0.26 * ray) * (0.6 + 0.7 * patch);
+  float vv = v * (0.85 + 0.3 * hv * 0.0 + 0.0);
+
+  float sway = sin(v * 2.4 + t * 0.12 + x * 5.0 + ph) * 0.012 + sin(v * 5.0 - t * 0.2 + ph) * 0.004;
+  float px = (x + sway) * res.x + (hv - 0.5) * 9.0 * u;
+  // the lowest dots spill below the edge and fade, so the curtain has no hard bottom line
+  float drop = pow(h1(a.x * 2.7 + a.y * 5.3 + c * 3.0), 2.5) * (1.0 - smoothstep(0.0, 0.25, v));
+  float py = (edge - vv * H + drop * 0.07) * res.y + (h1(a.y + a.x * 0.01 + c) - 0.5) * 4.0 * u;
+  gl_Position = vec4(px / res.x * 2.0 - 1.0, 1.0 - py / res.y * 2.0, 0.0, 1.0);
+
+  // sharp-ish bright lower edge, long soft fade upward
+  float prof = (pow(1.0 - v, 1.15) + 0.35 * smoothstep(0.25, 0.55, v) * (1.0 - v)) * smoothstep(0.0, 0.04, v + 0.03);
+  float edgeFade = smoothstep(-0.12, 0.05, x01 * 1.3 - 0.15 + 0.02) * (1.0 - smoothstep(1.02, 1.15, x * 1.0 + 0.0));
+  float tw = 0.75 + 0.25 * sin(t * (0.4 + hv) + hv * 40.0);
+  float k = prof * (0.25 + 0.9 * patch) * (0.1 + 0.9 * ray * ray) * tw
+          * (0.55 + 0.45 * smoothstep(0.0, 0.15, v)) * (1.0 - 0.85 * drop);
+
+  vec3 green = vec3(0.10, 1.00, 0.42);
+  vec3 teal  = vec3(0.05, 0.75, 0.85);
+  vec3 viol  = vec3(0.62, 0.25, 1.0);
+  float tealMix = 0.5 + 0.5 * sin(x * 2.5 + c * 1.3 - t * 0.02);
+  vec3 col = mix(green, teal, smoothstep(0.0, 0.5, v) * (0.5 + 0.5 * tealMix) + 0.25 * tealMix);
+  col = mix(col, viol, smoothstep(0.25, 0.9, v) * (0.6 + 0.45 * sin(c * 2.0 + x * 2.0 + t * 0.03)));
+  vCol = col;
+  vA = k * 1.7 * smoothstep(0.0, 0.1, x01 + 0.1) * smoothstep(0.0, 0.1, 1.1 - x01);
+  float s = (0.9 + 1.2 * (1.0 - v) + hv * 0.5) * u;
+  gl_PointSize = max(1.0, 2.0 * s);
+}`;
+const fs = `
+precision mediump float;
+varying vec3 vCol;
+varying float vA;
+void main(){
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  float edge = 1.0 - smoothstep(0.2, 1.0, d);
+  gl_FragColor = vec4(vCol * vA * edge, 1.0);
+}`;
+
+const pts = new Float32Array(NC * NV * CURT * 3);
+let i = 0;
+for (let c = 0; c < CURT; c++) for (let x = 0; x < NC; x++) for (let y = 0; y < NV; y++) { pts[i++] = x; pts[i++] = y; pts[i++] = c; }
+
+function sh(type, src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STATIC_DRAW);
+const aLoc = gl.getAttribLocation(prog, 'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc, STRIDE, gl.FLOAT, false, 0, 0);
+const uT = gl.getUniformLocation(prog, 't'), uRes = gl.getUniformLocation(prog, 'res');
+
+// additive blending: overlapping dots brighten instead of hiding each other
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.ONE, gl.ONE);
+gl.clearColor(0, 0, 0, 1);
+
+function resize(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.uniform2f(uRes, w, h);
+}
+
+const params = new URLSearchParams(location.search);
+const FPS = Number(params.get('fps')) || 30;
+// optional fixed time for stills: ?t=12
+const fixedT = params.has('t') ? Number(params.get('t')) : null;
+// each screen starts at a different moment so the two monitors don't mirror each other
+let t = fixedT ?? (10 + Math.random() * 600), last = performance.now(), acc = 0, running = true;
+
+function frame(now){
+  if (!running) return;
+  const dt = Math.min(now - last, 100) / 1000; last = now; acc += dt;
+  if (acc >= 1 / FPS - 0.002) {
+    if (fixedT === null) t += acc;
+    acc = 0;
+    resize();
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1f(uT, t);
+    gl.drawArrays(gl.POINTS, 0, pts.length / STRIDE);
+  }
+  requestAnimationFrame(frame);
+}
+
+// called by the macOS host app
+window.setPaused = p => {
+  if (p === !running) return;
+  running = !p;
+  if (running) { last = performance.now(); requestAnimationFrame(frame); }
+};
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
