@@ -32,6 +32,8 @@ if pgrep -x nxpaper >/dev/null; then
   for _ in {1..30}; do pgrep -x nxpaper >/dev/null || break; sleep 0.1; done
 fi
 
+# An older build in the other folder would start at login and confuse Launch Services.
+if [[ "$DEST" == /Applications ]]; then rm -rf "$HOME/Applications/nxpaper.app"; fi
 rm -rf "$DEST/nxpaper.app"
 ditto "$TMP/nxpaper.app" "$DEST/nxpaper.app"
 # The app isn't notarized; downloaded with curl it has no quarantine flag, but clear it to be sure.

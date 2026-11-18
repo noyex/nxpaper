@@ -34,10 +34,10 @@ cp -R Resources/wallpapers Resources/Fonts "$APP/Contents/Resources/"
 # Liquid Glass icon (Assets.car) for macOS 26+, plus the AppIcon.icns fallback for older systems.
 xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --platform macosx \
   --minimum-deployment-target 14.0 --app-icon AppIcon \
-  --output-partial-info-plist "$(mktemp)" --output-format human-readable-text --errors --warnings >/dev/null
+  --output-partial-info-plist "$(mktemp)" --output-format human-readable-text --errors --warnings
 
-# 1.2.0 from the latest v1.2.0 tag; the build number is the commit count.
-VERSION="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.0.0)"
+# NXPAPER_VERSION (set by the release workflow), else the latest v* tag; the build number is the commit count.
+VERSION="${NXPAPER_VERSION:-$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.0.0)}"
 VERSION="${VERSION#v}"
 BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -77,6 +77,8 @@ if (( INSTALL )); then
   fi
   rm -rf "$DEST/nxpaper.app"
   cp -R "$APP" "$DEST/nxpaper.app"
+  # An older build in the other folder would start at login and confuse Launch Services.
+  if [[ "$DEST" == /Applications ]]; then rm -rf "$HOME/Applications/nxpaper.app"; fi
   open "$DEST/nxpaper.app"
   echo "Installed $DEST/nxpaper.app"
 fi

@@ -85,7 +85,7 @@ The full contract is in [AGENTS.md](AGENTS.md).
 Turn off launch at login in the panel, quit nxpaper from the panel, then:
 
 ```sh
-rm -rf /Applications/nxpaper.app
+rm -rf /Applications/nxpaper.app ~/Applications/nxpaper.app
 defaults delete com.noyex.nxpaper   # the saved wallpaper and pause choice
 ```
 
@@ -98,9 +98,8 @@ scripts/build-app.sh --install   # copy to /Applications and launch
 ```
 
 Releasing: **Actions → Release → Run workflow** with a version like `v1.2.3` (or
-`gh workflow run release.yml -f version=v1.2.3`). It tags `main`, builds a universal `nxpaper.dmg` and
-`nxpaper.zip` (`scripts/package.sh`) and publishes them as a GitHub release. `scripts/release.sh v1.2.3`
-does the same locally.
+`scripts/release.sh v1.2.3`). It tags `main`, builds a universal `nxpaper.dmg` and `nxpaper.zip`
+(`scripts/package.sh`) and publishes them as a GitHub release.
 
 Bug reports, wallpaper ideas and pull requests are welcome: [open an issue](https://github.com/noyex/nxpaper/issues/new/choose) or read [CONTRIBUTING.md](CONTRIBUTING.md) for how to send a PR.
 
