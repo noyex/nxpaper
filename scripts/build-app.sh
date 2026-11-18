@@ -32,11 +32,9 @@ rm -rf build/slices
 cp -R Resources/wallpapers Resources/Fonts "$APP/Contents/Resources/"
 
 # Liquid Glass icon (Assets.car) for macOS 26+, plus the AppIcon.icns fallback for older systems.
-if [[ -d Resources/AppIcon.icon ]]; then
-  xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --platform macosx \
-    --minimum-deployment-target 14.0 --app-icon AppIcon \
-    --output-partial-info-plist "$(mktemp)" --output-format human-readable-text --errors --warnings
-fi
+xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --platform macosx \
+  --minimum-deployment-target 14.0 --app-icon AppIcon \
+  --output-partial-info-plist "$(mktemp)" --output-format human-readable-text --errors --warnings >/dev/null
 
 # 1.2.0 from the latest v1.2.0 tag; the build number is the commit count.
 VERSION="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.0.0)"
