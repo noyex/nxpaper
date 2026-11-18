@@ -52,7 +52,7 @@ final class Store: ObservableObject {
             if launchAtLogin { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() }
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Nie udało się zmienić startu przy logowaniu"
+            alert.messageText = "Couldn’t change launch at login"
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }

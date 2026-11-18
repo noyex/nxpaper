@@ -1,0 +1,84 @@
+name: Release
+
+# Actions → Release → Run workflow, or: gh workflow run release.yml -f version=v1.2.3
+# One GitHub release with nxpaper.dmg and nxpaper.zip (install.sh reads the zip from releases/latest).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. v1.2.3
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.version }}
+    steps:
+      - name: Check the version and branch
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version must look like v1.2.3, got: $TAG"; exit 1; }
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo "::error::Run the release from main"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Version is new and newer than the latest tag
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG already exists"
+            exit 1
+          fi
+          latest="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+          if [[ -n "$latest" && "$(printf '%s\n' "$latest" "$TAG" | sort -V | tail -1)" != "$TAG" ]]; then
+            echo "::error::$TAG must be newer than $latest"
+            exit 1
+          fi
+
+  build-mac:
+    needs: check
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history for the build number
+          persist-credentials: false
+      # The publish job creates the tag on GitHub, so a failed build leaves nothing behind.
+      - name: Build nxpaper.dmg and nxpaper.zip
+        env:
+          NXPAPER_VERSION: ${{ inputs.version }}
+        run: scripts/package.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mac
+          path: |
+            dist/nxpaper.dmg
+            dist/nxpaper.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build-mac
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        run: |
+          gh release create "$TAG" dist/nxpaper.dmg dist/nxpaper.zip \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "nxpaper $TAG" --generate-notes

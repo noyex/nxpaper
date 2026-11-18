@@ -1,0 +1,15 @@
+name: Suggest a wallpaper or a feature
+description: Suggest a new wallpaper or an idea for nxpaper
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: For a wallpaper, describe the motion and colors. A sketch or a link to something similar is welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What problem would it solve

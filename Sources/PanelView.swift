@@ -148,22 +148,22 @@ struct Footer: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(store.paused ? "Animacja wstrzymana" : "Animacja włączona")
+            Text(store.paused ? "Paused" : "Playing")
                 .font(BrandFont.medium.font(13))
                 .foregroundStyle(Look.secondary)
                 .contentTransition(.opacity)
                 .padding(.leading, 10)
             Spacer(minLength: 0)
             RoundButton(systemName: store.paused ? "play.fill" : "pause.fill",
-                        label: store.paused ? "Wznów animację" : "Wstrzymaj animację") {
+                        label: store.paused ? "Resume" : "Pause") {
                 withAnimation(.easeOut(duration: 0.15)) { store.paused.toggle() }
             }
             Menu {
-                Toggle("Uruchamiaj przy logowaniu", isOn: Binding(
+                Toggle("Launch at login", isOn: Binding(
                     get: { store.launchAtLogin },
                     set: { _ in store.toggleLaunchAtLogin() }))
                 Divider()
-                Button("Zakończ nxpaper") { NSApp.terminate(nil) }
+                Button("Quit nxpaper") { NSApp.terminate(nil) }
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 13, weight: .semibold))
@@ -176,7 +176,7 @@ struct Footer: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Ustawienia")
+            .help("Settings")
         }
         .padding(6)
         .background {

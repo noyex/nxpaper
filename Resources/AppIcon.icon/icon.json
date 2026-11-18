@@ -1,0 +1,48 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.00000,0.00000,0.00000,1.00000"
+      }
+    },
+    {
+      "appearance": "tinted",
+      "value": "automatic"
+    }
+  ],
+  "groups": [
+    {
+      "name": "fala",
+      "lighting": "individual",
+      "layers": [
+        {
+          "name": "crest",
+          "image-name": "crest.svg",
+          "glass": true,
+          "fill": "automatic",
+          "opacity": 1
+        },
+        {
+          "name": "dots",
+          "image-name": "dots.svg",
+          "glass": false,
+          "fill": "automatic",
+          "opacity": 1
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.2
+      },
+      "blur-material": 0.2
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
